@@ -14,6 +14,7 @@
 #include "SceneObject.h"
 #include "Ray.h"
 #include "Plane.h"
+#include "TextureBMP.h"
 #include <GL/freeglut.h>
 using namespace std;
 
@@ -26,6 +27,7 @@ const float YMIN = -10.0;
 const float YMAX = 10.0;
 
 vector<SceneObject*> sceneObjects;
+TextureBMP texture;
 
 //---The most important function in a ray tracer! ---------------------------------- 
 //   Computes the colour value obtained by tracing a ray and finding its 
@@ -50,6 +52,20 @@ glm::vec3 trace(Ray ray, int step) {
 		if (k == 0) color = glm::vec3(0, 1, 0);
 		else color = glm::vec3(1, 1, 0.5);
 		obj->setColor(color);
+
+		//Add code for texture mapping here
+		const float x1 = -15.0f, x2 =  5.0f;
+		const float z1 = -60.0f, z2 = -90.0f;
+
+		float texcoords = (ray.hit.x - x1) / (x2 - x1);
+		float texcoordt = (ray.hit.z - z1) / (z2 - z1);
+
+		if (texcoords > 0.0f && texcoords < 1.0f &&
+			texcoordt > 0.0f && texcoordt < 1.0f)
+		{
+			color = texture.getColorAt(texcoords, texcoordt);
+			obj->setColor(color);
+		}
 	}
 
 	color = obj->lighting(lightPos, -ray.dir, ray.hit);						//Object's colour
@@ -120,6 +136,8 @@ void initialize() {
 	gluOrtho2D(XMIN, XMAX, YMIN, YMAX);
 
 	glClearColor(0, 0, 0, 1);
+
+	texture = TextureBMP("../Butterfly.bmp");
 
 	Sphere *sphere1 = new Sphere(glm::vec3(-5.0, 0.0, -90.0), 15.0);
 	sphere1->setColor(glm::vec3(0, 0, 1));   //Set colour to blue
