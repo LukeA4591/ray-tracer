@@ -1,0 +1,8 @@
+# Build folders
+/build/
+/bin/
+/obj/
+
+# VS Code
+.vscode/
+
