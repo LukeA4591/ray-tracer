@@ -35,7 +35,7 @@ TextureBMP texture;
 //----------------------------------------------------------------------------------
 glm::vec3 trace(Ray ray, int step) {
 	glm::vec3 backgroundCol(0);						//Background colour = (0,0,0)
-	glm::vec3 lightPos(10, 40, -3);					//Light's position
+	glm::vec3 lightPos(10, 15, -3);					//Light's position
 	glm::vec3 color(0);
 	SceneObject* obj;
 
@@ -43,7 +43,7 @@ glm::vec3 trace(Ray ray, int step) {
 	if(ray.index == -1) return backgroundCol;		//no intersection
 	obj = sceneObjects[ray.index];					//object on which the closest point of intersection is found
 
-	if (ray.index == 4)
+	if (ray.index == 2)
 	{
 		//Stripe pattern
 		int stripeWidth = 5;
@@ -53,23 +53,31 @@ glm::vec3 trace(Ray ray, int step) {
 		else color = glm::vec3(1, 1, 0.5);
 		obj->setColor(color);
 
-		//Add code for texture mapping here
-		const float x1 = -15.0f, x2 =  5.0f;
-		const float z1 = -60.0f, z2 = -90.0f;
+		// //Add code for texture mapping here
+		// const float x1 = -15.0f, x2 =  5.0f;
+		// const float z1 = -60.0f, z2 = -90.0f;
 
-		float texcoords = (ray.hit.x - x1) / (x2 - x1);
-		float texcoordt = (ray.hit.z - z1) / (z2 - z1);
+		// float texcoords = (ray.hit.x - x1) / (x2 - x1);
+		// float texcoordt = (ray.hit.z - z1) / (z2 - z1);
 
-		if (texcoords > 0.0f && texcoords < 1.0f &&
-			texcoordt > 0.0f && texcoordt < 1.0f)
-		{
-			color = texture.getColorAt(texcoords, texcoordt);
-			obj->setColor(color);
-		}
+		// if (texcoords > 0.0f && texcoords < 1.0f &&
+		// 	texcoordt > 0.0f && texcoordt < 1.0f)
+		// {
+		// 	color = texture.getColorAt(texcoords, texcoordt);
+		// 	obj->setColor(color);
+		// }
 	}
 
 	color = obj->lighting(lightPos, -ray.dir, ray.hit);						//Object's colour
 	glm::vec3 lightVec = lightPos - ray.hit;
+	if (obj->isTransparent() && step < MAX_STEPS)
+	{
+		// not working
+		float rho = obj->getTransparencyCoeff();
+		Ray transparentRay(ray.hit, ray.dir);
+		glm::vec3 transparentColor = trace(transparentRay, step + 1);
+		color = color + (rho * transparentColor);
+	}
 	Ray shadowRay(ray.hit, lightVec);
 	shadowRay.closestPt(sceneObjects);
 	if (shadowRay.index > -1) color = 0.2f * obj->getColor();
@@ -137,29 +145,52 @@ void initialize() {
 
 	glClearColor(0, 0, 0, 1);
 
-	texture = TextureBMP("../Butterfly.bmp");
+	//texture = TextureBMP("/csse/users/lar93/Desktop/COSC363/OpenGLRayTracing/Butterfly.bmp");
 
-	Sphere *sphere1 = new Sphere(glm::vec3(-5.0, 0.0, -90.0), 15.0);
+	Sphere *sphere1 = new Sphere(glm::vec3(-5.0, -3.0, -90.0), 7.0);
 	sphere1->setColor(glm::vec3(0, 0, 1));   //Set colour to blue
 	sphere1->setReflectivity(true, 0.8);
 	sceneObjects.push_back(sphere1);		 //Add sphere to scene objects
-	Sphere *sphere2 = new Sphere(glm::vec3( 5.0, 5.0, -70.0), 4.0);
+	Sphere *sphere2 = new Sphere(glm::vec3( 5.0, 2.0, -70.0), 4.0);
 	sphere2->setColor(glm::vec3(0, 1, 0));   //Set colour to green
+	sphere2->setTransparency(true, 0.5);
 	sceneObjects.push_back(sphere2);		 //Add sphere to scene objects
-	Sphere *sphere3 = new Sphere(glm::vec3( 10.0, 10.0, -60.0), 3.0);
-	sphere3->setColor(glm::vec3(1, 0, 0));   //Set colour to blue
-	sceneObjects.push_back(sphere3);		 //Add sphere to scene objects
-	Sphere *sphere4 = new Sphere(glm::vec3(5.0, -10.0, -60.0), 5.0);
-	sphere4->setColor(glm::vec3(0, 1, 1));   //Set colour to blue
-	sceneObjects.push_back(sphere4);		 //Add sphere to scene objects
 
-	Plane *plane = new Plane (glm::vec3(-20., -15, -40), //Point A
+	Plane *floor = new Plane (glm::vec3(-20., -15, -40), //Point A
 							  glm::vec3(20., -15, -40), //Point B
 							  glm::vec3(20., -15, -200), //Point C
 							  glm::vec3(-20., -15, -200)); //Point D
-	plane->setColor(glm::vec3(0.8, 0.8, 0));
-	plane->setSpecularity(false);
-	sceneObjects.push_back(plane);
+	floor->setColor(glm::vec3(0.8, 0.8, 0));
+	floor->setSpecularity(false);
+	sceneObjects.push_back(floor);
+	Plane *lWall = new Plane (glm::vec3(-20., -15, -40),
+							  glm::vec3(-20., -15, -200),
+							  glm::vec3(-20., 15, -200), 
+							  glm::vec3(-20., 15, -40)); 
+	lWall->setColor(glm::vec3(1.0, 0, 0));
+	lWall->setSpecularity(false);
+	sceneObjects.push_back(lWall);
+	Plane *rWall = new Plane (glm::vec3(20., -15, -40),
+							  glm::vec3(20., -15, -200),
+							  glm::vec3(20., 15, -200), 
+							  glm::vec3(20., 15, -40)); 
+	rWall->setColor(glm::vec3(0, 1.0, 1.0));
+	rWall->setReflectivity(true, 0.3);
+	sceneObjects.push_back(rWall);
+	Plane *bWall = new Plane (glm::vec3(-20., -15, -200),
+							  glm::vec3(20., -15, -200),
+							  glm::vec3(20., 15, -200), 
+							  glm::vec3(-20., 15, -200)); 
+	bWall->setColor(glm::vec3(0, 0, 1.0));
+	bWall->setSpecularity(false);
+	sceneObjects.push_back(bWall);
+	Plane *roof = new Plane (glm::vec3(-20., 15, -40), //Point A
+							  glm::vec3(20., 15, -40), //Point B
+							  glm::vec3(20., 15, -200), //Point C
+							  glm::vec3(-20., 15, -200)); //Point D
+	roof->setColor(glm::vec3(1.0, 0, 1.0));
+	roof->setSpecularity(false);
+	sceneObjects.push_back(roof);
 }
 
 int main(int argc, char *argv[]) {
