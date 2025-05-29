@@ -11,6 +11,9 @@
 #include <vector>
 #include <glm/glm.hpp>
 #include "Sphere.h"
+#include "Cylinder.h"
+#include "TruncatedCone.h"
+#include "Torus.h"
 #include "SceneObject.h"
 #include "Ray.h"
 #include "Plane.h"
@@ -38,12 +41,13 @@ glm::vec3 trace(Ray ray, int step) {
 	glm::vec3 lightPos(10, 15, -3);					//Light's position
 	glm::vec3 color(0);
 	SceneObject* obj;
+	SceneObject* shadowObj;
 
 	ray.closestPt(sceneObjects);					//Compare the ray with all objects in the scene
 	if(ray.index == -1) return backgroundCol;		//no intersection
 	obj = sceneObjects[ray.index];					//object on which the closest point of intersection is found
 
-	if (ray.index == 2)
+	if (ray.index == 6)
 	{
 		// size of each square
 		int stripeWidth = 5;
@@ -75,6 +79,45 @@ glm::vec3 trace(Ray ray, int step) {
 
 	color = obj->lighting(lightPos, -ray.dir, ray.hit);						//Object's colour
 	glm::vec3 lightVec = lightPos - ray.hit;
+
+	if (obj->isRefractive() && step < MAX_STEPS)
+	{
+		float kr      = obj->getRefractionCoeff();
+		float eta     = obj->getRefractiveIndex();
+		glm::vec3 normal   = obj->normal(ray.hit);
+
+		float n1 = 1.0f, n2 = eta;
+		if (glm::dot(ray.dir, normal) > 0.0f) {
+			normal = -normal;
+			std::swap(n1, n2);
+		}
+		float etaRatio = n1 / n2;
+
+		glm::vec3 refrDir = glm::refract(ray.dir, normal, etaRatio);
+		refrDir = glm::normalize(refrDir);
+
+		Ray throughRay(ray.hit, refrDir);
+		throughRay.closestPt(sceneObjects);
+
+		glm::vec3 exitPt   = throughRay.hit;
+		SceneObject* exitObj = sceneObjects[throughRay.index];
+		glm::vec3 Nexit    = exitObj->normal(exitPt);
+		if (glm::dot(refrDir, Nexit) > 0.0f) {
+			Nexit = -Nexit;
+		}
+		float etaRatioExit = n2 / n1;
+		glm::vec3 refrDirExit = glm::refract(refrDir, Nexit, etaRatioExit);
+		refrDirExit = glm::normalize(refrDirExit);
+
+		Ray exitRay(exitPt, refrDirExit);
+		exitRay.closestPt(sceneObjects);
+		glm::vec3 refrColor = trace(exitRay, step + 1);
+
+		color = kr * refrColor;
+		return color;
+	}
+
+
 	if (obj->isTransparent() && step < MAX_STEPS)
 	{
 		float rho = obj->getTransparencyCoeff();
@@ -85,18 +128,17 @@ glm::vec3 trace(Ray ray, int step) {
 		color = color + (rho * transparentColor);
 	}
 
-	//not working for transparent object
-	Ray shadowRay(ray.hit, lightVec);
+	Ray shadowRay(ray.hit, lightVec); 
 	shadowRay.closestPt(sceneObjects);
 	if (shadowRay.index > -1) {
-		float shadowStrength = 0.2f;
-
-		if (obj->isTransparent()) {
-			float rho = obj->getTransparencyCoeff();  
-			shadowStrength *= (1.0f - rho);
+		shadowObj = sceneObjects[shadowRay.index];
+		if (shadowObj->isTransparent()) {
+			glm::vec3 ambient = 0.2f * shadowObj->getColor();
+			glm::vec3 diffSpec = color - ambient;
+			color = ambient + 0.8f*diffSpec;
+		} else {
+			color = 0.2f * obj->getColor();
 		}
-
-		color = shadowStrength * obj->getColor();
 	}
 
 	if (obj->isReflective() && step < MAX_STEPS)
@@ -164,14 +206,32 @@ void initialize() {
 
 	//texture = TextureBMP("/csse/users/lar93/Desktop/COSC363/OpenGLRayTracing/Butterfly.bmp");
 
-	Sphere *sphere1 = new Sphere(glm::vec3(-5.0, -3.0, -90.0), 7.0);
-	sphere1->setColor(glm::vec3(0, 0, 1));   //Set colour to blue
+	Sphere *sphere1 = new Sphere(glm::vec3(-7.0, -3.0, -70.0), 3.0);
+	sphere1->setColor(glm::vec3(0, 0, 1));
 	sphere1->setReflectivity(true, 0.8);
-	sceneObjects.push_back(sphere1);		 //Add sphere to scene objects
-	Sphere *sphere2 = new Sphere(glm::vec3( 5.0, 2.0, -70.0), 4.0);
-	sphere2->setColor(glm::vec3(0, 1, 0));   //Set colour to green
-	sphere2->setTransparency(true, 0.4);
-	sceneObjects.push_back(sphere2);		 //Add sphere to scene objects
+	sceneObjects.push_back(sphere1);
+
+	Sphere *sphere2 = new Sphere(glm::vec3( 0.0, -3.0, -70.0), 3.0);
+	sphere2->setColor(glm::vec3(0.3, 0.3, 0.3));
+	sphere2->setTransparency(true, 0.3);
+	sceneObjects.push_back(sphere2);
+
+	Sphere *sphere3 = new Sphere(glm::vec3( 7.0, -10.0, -70.0), 3.0);
+	sphere3->setColor(glm::vec3(1, 1, 1));  
+	sphere3->setRefractivity(true, 0.7, 1.5);
+	sceneObjects.push_back(sphere3);
+
+	Cylinder *cylinder = new Cylinder(glm::vec3(-7.0, -10, -70.0), 2.0, 5.0);
+	cylinder->setColor(glm::vec3(0, 0, 1));
+	sceneObjects.push_back(cylinder);
+
+	TruncatedCone *cone = new TruncatedCone(glm::vec3(0.0, -10, -70.0), 2.5, 1.0, 5);
+	cone->setColor(glm::vec3(0.75, 0.3, 0.75));
+	sceneObjects.push_back(cone);
+
+	Torus *torus = new Torus(glm::vec3(7.0, -3.0, -70.0), 2.0, 1.0);
+	torus->setColor(glm::vec3(1, 0, 0));
+	sceneObjects.push_back(torus);
 
 	Plane *floor = new Plane (glm::vec3(-20., -15, -40), //Point A
 							  glm::vec3(20., -15, -40), //Point B
