@@ -45,14 +45,19 @@ glm::vec3 trace(Ray ray, int step) {
 
 	if (ray.index == 2)
 	{
-		//Stripe pattern
+		// size of each square
 		int stripeWidth = 5;
-		int iz = (ray.hit.z) / stripeWidth;
-		int k = iz % 2; //2 colors
-		if (k == 0) color = glm::vec3(0, 1, 0);
-		else color = glm::vec3(1, 1, 0.5);
-		obj->setColor(color);
 
+		// compute which “cell” we’re in on X and Z
+		int ix = static_cast<int>(floor(ray.hit.x / stripeWidth));
+		int iz = static_cast<int>(floor(ray.hit.z / stripeWidth));
+
+		if ( (ix + iz) % 2 == 0 ) {
+			color = glm::vec3(0, 1, 0);        
+		} else {
+			color = glm::vec3(1, 1, 0.5);     
+		}
+		obj->setColor(color);
 		// //Add code for texture mapping here
 		// const float x1 = -15.0f, x2 =  5.0f;
 		// const float z1 = -60.0f, z2 = -90.0f;
@@ -72,15 +77,27 @@ glm::vec3 trace(Ray ray, int step) {
 	glm::vec3 lightVec = lightPos - ray.hit;
 	if (obj->isTransparent() && step < MAX_STEPS)
 	{
-		// not working
 		float rho = obj->getTransparencyCoeff();
-		Ray transparentRay(ray.hit, ray.dir);
-		glm::vec3 transparentColor = trace(transparentRay, step + 1);
+		Ray throughRay(ray.hit, ray.dir);
+		throughRay.closestPt(sceneObjects);
+		Ray exitRay(throughRay.hit, throughRay.dir);
+		glm::vec3 transparentColor = trace(exitRay, step + 1);
 		color = color + (rho * transparentColor);
 	}
+
+	//not working for transparent object
 	Ray shadowRay(ray.hit, lightVec);
 	shadowRay.closestPt(sceneObjects);
-	if (shadowRay.index > -1) color = 0.2f * obj->getColor();
+	if (shadowRay.index > -1) {
+		float shadowStrength = 0.2f;
+
+		if (obj->isTransparent()) {
+			float rho = obj->getTransparencyCoeff();  
+			shadowStrength *= (1.0f - rho);
+		}
+
+		color = shadowStrength * obj->getColor();
+	}
 
 	if (obj->isReflective() && step < MAX_STEPS)
 	{
@@ -153,7 +170,7 @@ void initialize() {
 	sceneObjects.push_back(sphere1);		 //Add sphere to scene objects
 	Sphere *sphere2 = new Sphere(glm::vec3( 5.0, 2.0, -70.0), 4.0);
 	sphere2->setColor(glm::vec3(0, 1, 0));   //Set colour to green
-	sphere2->setTransparency(true, 0.5);
+	sphere2->setTransparency(true, 0.4);
 	sceneObjects.push_back(sphere2);		 //Add sphere to scene objects
 
 	Plane *floor = new Plane (glm::vec3(-20., -15, -40), //Point A
