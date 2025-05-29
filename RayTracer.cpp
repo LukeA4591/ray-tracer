@@ -24,10 +24,12 @@ using namespace std;
 const float EDIST = 40.0;
 const int NUMDIV = 500;
 const int MAX_STEPS = 5;
+const int SAMPLES_PER_PIXEL = 4;
 const float XMIN = -10.0;
 const float XMAX = 10.0;
 const float YMIN = -10.0;
 const float YMAX = 10.0;
+bool enableAA = true;
 
 vector<SceneObject*> sceneObjects;
 TextureBMP texture;
@@ -62,19 +64,22 @@ glm::vec3 trace(Ray ray, int step) {
 			color = glm::vec3(1, 1, 0.5);     
 		}
 		obj->setColor(color);
-		// //Add code for texture mapping here
-		// const float x1 = -15.0f, x2 =  5.0f;
-		// const float z1 = -60.0f, z2 = -90.0f;
+	}
 
-		// float texcoords = (ray.hit.x - x1) / (x2 - x1);
-		// float texcoordt = (ray.hit.z - z1) / (z2 - z1);
+	if (ray.index == 0)
+	{
+		// get the unit normal on the sphere
+        glm::vec3 N = obj->normal(ray.hit);
 
-		// if (texcoords > 0.0f && texcoords < 1.0f &&
-		// 	texcoordt > 0.0f && texcoordt < 1.0f)
-		// {
-		// 	color = texture.getColorAt(texcoords, texcoordt);
-		// 	obj->setColor(color);
-		// }
+        // compute spherical UVs
+        float u = 0.5f + atan2(N.z, N.x) / (2.0f * M_PI);
+        float v = 0.5f - asin (N.y)    / M_PI;
+
+        // sample your BMP loader
+        glm::vec3 texCol = texture.getColorAt(u, v);
+
+        // push it into the material color
+        obj->setColor(texCol);
 	}
 
 	color = obj->lighting(lightPos, -ray.dir, ray.hit);						//Object's colour
@@ -87,10 +92,6 @@ glm::vec3 trace(Ray ray, int step) {
 		glm::vec3 normal   = obj->normal(ray.hit);
 
 		float n1 = 1.0f, n2 = eta;
-		if (glm::dot(ray.dir, normal) > 0.0f) {
-			normal = -normal;
-			std::swap(n1, n2);
-		}
 		float etaRatio = n1 / n2;
 
 		glm::vec3 refrDir = glm::refract(ray.dir, normal, etaRatio);
@@ -99,12 +100,13 @@ glm::vec3 trace(Ray ray, int step) {
 		Ray throughRay(ray.hit, refrDir);
 		throughRay.closestPt(sceneObjects);
 
-		glm::vec3 exitPt   = throughRay.hit;
+		glm::vec3 exitPt = throughRay.hit;
 		SceneObject* exitObj = sceneObjects[throughRay.index];
-		glm::vec3 Nexit    = exitObj->normal(exitPt);
+		glm::vec3 Nexit = exitObj->normal(exitPt);
 		if (glm::dot(refrDir, Nexit) > 0.0f) {
 			Nexit = -Nexit;
 		}
+		
 		float etaRatioExit = n2 / n1;
 		glm::vec3 refrDirExit = glm::refract(refrDir, Nexit, etaRatioExit);
 		refrDirExit = glm::normalize(refrDirExit);
@@ -113,8 +115,7 @@ glm::vec3 trace(Ray ray, int step) {
 		exitRay.closestPt(sceneObjects);
 		glm::vec3 refrColor = trace(exitRay, step + 1);
 
-		color = kr * refrColor;
-		return color;
+		color = color + kr * refrColor;
 	}
 
 
@@ -132,7 +133,7 @@ glm::vec3 trace(Ray ray, int step) {
 	shadowRay.closestPt(sceneObjects);
 	if (shadowRay.index > -1) {
 		shadowObj = sceneObjects[shadowRay.index];
-		if (shadowObj->isTransparent()) {
+		if (shadowObj->isTransparent() || shadowObj->isRefractive()) {
 			glm::vec3 ambient = 0.2f * shadowObj->getColor();
 			glm::vec3 diffSpec = color - ambient;
 			color = ambient + 0.8f*diffSpec;
@@ -158,39 +159,67 @@ glm::vec3 trace(Ray ray, int step) {
 // In a ray tracing application, it just displays the ray traced image by drawing
 // each cell as a quad.
 //---------------------------------------------------------------------------------------
+// at top of your .cpp, to toggle anti-aliasing:
+
 void display() {
-	float xp, yp;  //grid point
-	float cellX = (XMAX - XMIN) / NUMDIV;  //cell width
-	float cellY = (YMAX - YMIN) / NUMDIV;  //cell height
-	glm::vec3 eye(0., 0., 0.);
+    float xp, yp;
+    float cellX = (XMAX - XMIN) / NUMDIV;
+    float cellY = (YMAX - YMIN) / NUMDIV;
+    glm::vec3 eye(0., 0., 0.);
 
-	glClear(GL_COLOR_BUFFER_BIT);
-	glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();
+    const int SPP = SAMPLES_PER_PIXEL;  // e.g. 4
+    const int n   = (int)std::sqrt(SPP); // 2 if SPP==4
 
-	glBegin(GL_QUADS);  //Each cell is a tiny quad.
+    glClear(GL_COLOR_BUFFER_BIT);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glBegin(GL_QUADS);
 
-	for (int i = 0; i < NUMDIV; i++) {	//Scan every cell of the image plane
-		xp = XMIN + i * cellX;
-		for (int j = 0; j < NUMDIV; j++) {
-			yp = YMIN + j * cellY;
+    for (int i = 0; i < NUMDIV; ++i) {
+        xp = XMIN + i * cellX;
+        for (int j = 0; j < NUMDIV; ++j) {
+            yp = YMIN + j * cellY;
 
-			glm::vec3 dir(xp + 0.5 * cellX, yp + 0.5 * cellY, -EDIST);	//direction of the primary ray
+            glm::vec3 color(0.0f);
 
-			Ray ray = Ray(eye, dir);
+            if (enableAA) {
+                glm::vec3 accum(0.0f);
+                for (int sx = 0; sx < n; ++sx) {
+                    for (int sy = 0; sy < n; ++sy) {
+                        float u = (sx + 0.5f) / float(n);
+                        float v = (sy + 0.5f) / float(n);
 
-			glm::vec3 col = trace(ray, 1); //Trace the primary ray and get the colour value
-			glColor3f(col.r, col.g, col.b);
-			glVertex2f(xp, yp);				//Draw each cell with its color value
-			glVertex2f(xp + cellX, yp);
-			glVertex2f(xp + cellX, yp + cellY);
-			glVertex2f(xp, yp + cellY);
-		}
-	}
+                        glm::vec3 dir(
+                            xp + u * cellX,
+                            yp + v * cellY,
+                            -EDIST
+                        );
+                        accum += trace(Ray(eye, dir), 1);
+                    }
+                }
+                color = accum / 4.0f;
+            }
+            else {
+                glm::vec3 dir(
+                    xp + 0.5f * cellX,
+                    yp + 0.5f * cellY,
+                    -EDIST
+                );
+                color = trace(Ray(eye, dir), 1);
+            }
 
-	glEnd();
-	glFlush();
+            glColor3f(color.r, color.g, color.b);
+            glVertex2f(xp,          yp);
+            glVertex2f(xp + cellX,  yp);
+            glVertex2f(xp + cellX,  yp + cellY);
+            glVertex2f(xp,          yp + cellY);
+        }
+    }
+
+    glEnd();
+    glFlush();
 }
+
 
 //---This function initializes the scene ------------------------------------------- 
 //   Specifically, it creates scene objects (spheres, planes, cones, cylinders etc)
@@ -204,25 +233,27 @@ void initialize() {
 
 	glClearColor(0, 0, 0, 1);
 
-	//texture = TextureBMP("/csse/users/lar93/Desktop/COSC363/OpenGLRayTracing/Butterfly.bmp");
+	texture = TextureBMP("../Mars.bmp");
+
 
 	Sphere *sphere1 = new Sphere(glm::vec3(-7.0, -3.0, -70.0), 3.0);
 	sphere1->setColor(glm::vec3(0, 0, 1));
-	sphere1->setReflectivity(true, 0.8);
 	sceneObjects.push_back(sphere1);
 
 	Sphere *sphere2 = new Sphere(glm::vec3( 0.0, -3.0, -70.0), 3.0);
 	sphere2->setColor(glm::vec3(0.3, 0.3, 0.3));
-	sphere2->setTransparency(true, 0.3);
+	sphere2->setReflectivity(true, 0.05);
+	sphere2->setTransparency(true, 0.9);
 	sceneObjects.push_back(sphere2);
 
 	Sphere *sphere3 = new Sphere(glm::vec3( 7.0, -10.0, -70.0), 3.0);
-	sphere3->setColor(glm::vec3(1, 1, 1));  
-	sphere3->setRefractivity(true, 0.7, 1.5);
+	sphere3->setColor(glm::vec3(0.1, 0.1, 0.1));  
+	sphere3->setReflectivity(true, 0.2);
+	sphere3->setRefractivity(true, 0.9, 1.5);
 	sceneObjects.push_back(sphere3);
 
 	Cylinder *cylinder = new Cylinder(glm::vec3(-7.0, -10, -70.0), 2.0, 5.0);
-	cylinder->setColor(glm::vec3(0, 0, 1));
+	cylinder->setColor(glm::vec3(0.2, 0.2, 0.2));
 	sceneObjects.push_back(cylinder);
 
 	TruncatedCone *cone = new TruncatedCone(glm::vec3(0.0, -10, -70.0), 2.5, 1.0, 5);
@@ -233,41 +264,36 @@ void initialize() {
 	torus->setColor(glm::vec3(1, 0, 0));
 	sceneObjects.push_back(torus);
 
-	Plane *floor = new Plane (glm::vec3(-20., -15, -40), //Point A
-							  glm::vec3(20., -15, -40), //Point B
-							  glm::vec3(20., -15, -200), //Point C
-							  glm::vec3(-20., -15, -200)); //Point D
+	Plane *floor = new Plane (glm::vec3(-20., -15, -40), glm::vec3(20., -15, -40), glm::vec3(20., -15, -200), glm::vec3(-20., -15, -200));
 	floor->setColor(glm::vec3(0.8, 0.8, 0));
 	floor->setSpecularity(false);
 	sceneObjects.push_back(floor);
-	Plane *lWall = new Plane (glm::vec3(-20., -15, -40),
-							  glm::vec3(-20., -15, -200),
-							  glm::vec3(-20., 15, -200), 
-							  glm::vec3(-20., 15, -40)); 
+
+	Plane *lWall = new Plane (glm::vec3(-20., -15, -40), glm::vec3(-20., -15, -200), glm::vec3(-20., 15, -200), glm::vec3(-20., 15, -40)); 
 	lWall->setColor(glm::vec3(1.0, 0, 0));
 	lWall->setSpecularity(false);
 	sceneObjects.push_back(lWall);
-	Plane *rWall = new Plane (glm::vec3(20., -15, -40),
-							  glm::vec3(20., -15, -200),
-							  glm::vec3(20., 15, -200), 
-							  glm::vec3(20., 15, -40)); 
+
+	Plane *rWall = new Plane (glm::vec3(20., -15, -40), glm::vec3(20., -15, -200), glm::vec3(20., 15, -200), glm::vec3(20., 15, -40)); 
 	rWall->setColor(glm::vec3(0, 1.0, 1.0));
-	rWall->setReflectivity(true, 0.3);
+	rWall->setSpecularity(false);
 	sceneObjects.push_back(rWall);
-	Plane *bWall = new Plane (glm::vec3(-20., -15, -200),
-							  glm::vec3(20., -15, -200),
-							  glm::vec3(20., 15, -200), 
-							  glm::vec3(-20., 15, -200)); 
-	bWall->setColor(glm::vec3(0, 0, 1.0));
+
+	Plane *bWall = new Plane (glm::vec3(-20., -15, -200), glm::vec3(20., -15, -200), glm::vec3(20., 15, -200), glm::vec3(-20., 15, -200)); 
 	bWall->setSpecularity(false);
+	bWall->setColor(glm::vec3(0.173, 0.357, 0.369));
 	sceneObjects.push_back(bWall);
-	Plane *roof = new Plane (glm::vec3(-20., 15, -40), //Point A
-							  glm::vec3(20., 15, -40), //Point B
-							  glm::vec3(20., 15, -200), //Point C
-							  glm::vec3(-20., 15, -200)); //Point D
+
+	Plane *roof = new Plane (glm::vec3(-20., 15, -40), glm::vec3(20., 15, -40), glm::vec3(20., 15, -200), glm::vec3(-20., 15, -200));
 	roof->setColor(glm::vec3(1.0, 0, 1.0));
 	roof->setSpecularity(false);
 	sceneObjects.push_back(roof);
+
+	Plane *mirror = new Plane (glm::vec3(-10., 1, -84), glm::vec3(10., 1, -84), glm::vec3(10., 10, -80), glm::vec3(-10., 10, -80)); 
+	mirror->setSpecularity(false);
+	mirror->setReflectivity(true, 0.8);
+	mirror->setColor(glm::vec3(0.1, 0.1, 0.1));
+	sceneObjects.push_back(mirror);
 }
 
 int main(int argc, char *argv[]) {

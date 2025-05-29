@@ -1,4 +1,3 @@
-// Cylinder.cpp
 #include "Cylinder.h"
 #include <cmath>
 
