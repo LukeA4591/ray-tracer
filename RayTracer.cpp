@@ -214,8 +214,8 @@ void initialize() {
 
 	texture = TextureBMP("../Mars.bmp");
 
-	lightPositions.push_back(glm::vec3( 10.0f, 15.0f, -3.0f));
-    lightPositions.push_back(glm::vec3(-10.0f, 15.0f, -3.0f));
+	lightPositions.push_back(glm::vec3( 15.0f, 15.0f, -3.0f));
+    lightPositions.push_back(glm::vec3( 0.0f, 15.0f, -3.0f));
 
 	Sphere *sphere1 = new Sphere(glm::vec3(-7.0, -3.0, -70.0), 3.0);
 	sphere1->setColor(glm::vec3(0, 0, 1));
@@ -234,7 +234,7 @@ void initialize() {
 	sceneObjects.push_back(sphere3);
 
 	Cylinder *cylinder = new Cylinder(glm::vec3(-7.0, -10, -70.0), 2.0, 5.0);
-	cylinder->setColor(glm::vec3(0.2, 0.2, 0.2));
+	cylinder->setColor(glm::vec3(0.3, 0.3, 0.3));
 	sceneObjects.push_back(cylinder);
 
 	TruncatedCone *cone = new TruncatedCone(glm::vec3(0.0, -10, -70.0), 2.5, 1.0, 5);
@@ -242,7 +242,7 @@ void initialize() {
 	sceneObjects.push_back(cone);
 
 	Torus *torus = new Torus(glm::vec3(7.0, -3.0, -70.0), 2.0, 1.0);
-	torus->setColor(glm::vec3(1, 0, 0));
+	torus->setColor(glm::vec3(0, 1, 1));
 	sceneObjects.push_back(torus);
 
 	Plane *floor = new Plane (glm::vec3(-20., -15, -40), glm::vec3(20., -15, -40), glm::vec3(20., -15, -200), glm::vec3(-20., -15, -200));
