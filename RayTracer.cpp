@@ -31,7 +31,7 @@ const float YMIN = -10.0;
 const float YMAX = 10.0;
 static std::vector<glm::vec3> lightPositions;
 const float ambientTerm = 0.2f;
-bool enableAA = false;
+bool enableAA = true;
 
 vector<SceneObject*> sceneObjects;
 TextureBMP texture;
@@ -56,6 +56,7 @@ glm::vec3 trace(Ray ray, int step) {
             : glm::vec3(1,1,0.5f);
         obj->setColor(stripeCol);
     }
+
     if (ray.index == 0) {
         glm::vec3 N = obj->normal(hit);
         float u = 0.5f + atan2(N.z, N.x)/(2.0f*M_PI);
@@ -279,11 +280,11 @@ void initialize() {
 	roof->setSpecularity(false);
 	sceneObjects.push_back(roof);
 
-	// Plane *mirror = new Plane (glm::vec3(-10., 1, -84), glm::vec3(10., 1, -84), glm::vec3(10., 10, -80), glm::vec3(-10., 10, -80)); 
-	// mirror->setSpecularity(false);
-	// mirror->setReflectivity(true, 0.8);
-	// mirror->setColor(glm::vec3(0.1, 0.1, 0.1));
-	// sceneObjects.push_back(mirror);
+	Plane *mirror = new Plane (glm::vec3(-10., 1, -84), glm::vec3(10., 1, -84), glm::vec3(10., 10, -80), glm::vec3(-10., 10, -80)); 
+	mirror->setSpecularity(false);
+	mirror->setReflectivity(true, 0.8);
+	mirror->setColor(glm::vec3(0.1, 0.1, 0.1));
+	sceneObjects.push_back(mirror);
 }
 
 int main(int argc, char *argv[]) {
