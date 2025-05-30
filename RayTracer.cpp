@@ -29,6 +29,8 @@ const float XMIN = -10.0;
 const float XMAX = 10.0;
 const float YMIN = -10.0;
 const float YMAX = 10.0;
+static std::vector<glm::vec3> lightPositions;
+const float ambientTerm = 0.2f;
 bool enableAA = true;
 
 vector<SceneObject*> sceneObjects;
@@ -39,121 +41,98 @@ TextureBMP texture;
 //     closest point of intersection with objects in the scene.
 //----------------------------------------------------------------------------------
 glm::vec3 trace(Ray ray, int step) {
-	glm::vec3 backgroundCol(0);						//Background colour = (0,0,0)
-	glm::vec3 lightPos(10, 15, -3);					//Light's position
-	glm::vec3 color(0);
-	SceneObject* obj;
-	SceneObject* shadowObj;
+    ray.closestPt(sceneObjects);
+    if (ray.index < 0) return glm::vec3(0.0f);
 
-	ray.closestPt(sceneObjects);					//Compare the ray with all objects in the scene
-	if(ray.index == -1) return backgroundCol;		//no intersection
-	obj = sceneObjects[ray.index];					//object on which the closest point of intersection is found
+    SceneObject* obj = sceneObjects[ray.index];
+    glm::vec3  hit   = ray.hit;
 
-	if (ray.index == 6)
-	{
-		// size of each square
-		int stripeWidth = 5;
+    if (ray.index == 6) {
+        int stripeW = 5;
+        int ix = int(floor(hit.x/stripeW));
+        int iz = int(floor(hit.z/stripeW));
+        glm::vec3 stripeCol = ((ix+iz)&1)
+            ? glm::vec3(0,1,0)
+            : glm::vec3(1,1,0.5f);
+        obj->setColor(stripeCol);
+    }
+    if (ray.index == 0) {
+        glm::vec3 N = obj->normal(hit);
+        float u = 0.5f + atan2(N.z, N.x)/(2.0f*M_PI);
+        float v = 0.5f - asin(N.y)/M_PI;
+        obj->setColor(texture.getColorAt(u,v));
+    }
 
-		// compute which “cell” we’re in on X and Z
-		int ix = static_cast<int>(floor(ray.hit.x / stripeWidth));
-		int iz = static_cast<int>(floor(ray.hit.z / stripeWidth));
+    glm::vec3 baseCol = obj->getColor();
+    glm::vec3 N = obj->normal(hit);
+    glm::vec3 V = glm::normalize(-ray.dir);
 
-		if ( (ix + iz) % 2 == 0 ) {
-			color = glm::vec3(0, 1, 0);        
-		} else {
-			color = glm::vec3(1, 1, 0.5);     
-		}
-		obj->setColor(color);
-	}
+    glm::vec3 color = ambientTerm * baseCol;
 
-	if (ray.index == 0)
-	{
-		// get the unit normal on the sphere
-        glm::vec3 N = obj->normal(ray.hit);
+    float lightScale = 1.0f / float(lightPositions.size());
+    for (auto& Lpos : lightPositions) {
+        glm::vec3 L = glm::normalize(Lpos - hit);
+        Ray shadow(hit, L);
+        shadow.closestPt(sceneObjects);
+        bool inShadow = false;
+        if (shadow.index > -1) {
+            float dL = glm::length(Lpos - hit);
+            float dO = glm::length(shadow.hit - hit);
+            inShadow = (dO < dL);
+        }
+        if (!inShadow) {
+            float NdotL = glm::max(glm::dot(N,L), 0.0f);
+            glm::vec3 diff = NdotL * baseCol;
+            glm::vec3 spec(0.0f);
+            if (obj->isSpecular()) {
+                glm::vec3 R = glm::reflect(-L, N);
+                float RV = glm::max(glm::dot(R, V), 0.0f);
+                spec = glm::vec3(powf(RV, obj->getShininess()));
+            }
+            color += lightScale * (diff + spec);
+        }
+    }
 
-        // compute spherical UVs
-        float u = 0.5f + atan2(N.z, N.x) / (2.0f * M_PI);
-        float v = 0.5f - asin (N.y)    / M_PI;
+    if (obj->isReflective() && step < MAX_STEPS) {
+        float kr = obj->getReflectionCoeff();
+        glm::vec3 R = glm::reflect(ray.dir, N);
+        Ray rray(hit, R); rray.closestPt(sceneObjects);
+        if (rray.index > -1)
+            color += kr * trace(rray, step+1);
+    }
+    if (obj->isRefractive() && step < MAX_STEPS) {
+        float kr = obj->getRefractionCoeff();
+        float eta = obj->getRefractiveIndex();
+        glm::vec3 nrm = N;
+        float n1=1, n2=eta;
 
-        // sample your BMP loader
-        glm::vec3 texCol = texture.getColorAt(u, v);
+        if (glm::dot(ray.dir,nrm)>0){ nrm=-nrm; std::swap(n1,n2); }
 
-        // push it into the material color
-        obj->setColor(texCol);
-	}
+        glm::vec3 rd = glm::normalize(glm::refract(ray.dir,nrm,n1/n2));
+        Ray through(hit, rd); through.closestPt(sceneObjects);
 
-	color = obj->lighting(lightPos, -ray.dir, ray.hit);						//Object's colour
-	glm::vec3 lightVec = lightPos - ray.hit;
+        if (through.index > -1) {
+            glm::vec3 exitPt = through.hit;
+            glm::vec3 N2     = sceneObjects[through.index]->normal(exitPt);
+            if (glm::dot(rd,N2)>0) N2=-N2;
+            glm::vec3 rd2 = glm::normalize(glm::refract(rd,N2,n2/n1));
+            Ray exitRay(exitPt, rd2); exitRay.closestPt(sceneObjects);
+            if (exitRay.index > -1)
+                color += kr * trace(exitRay, step+1);
+        }
+    }
+    if (obj->isTransparent() && step < MAX_STEPS) {
+        float rho = obj->getTransparencyCoeff();
+        Ray t1(hit, ray.dir); t1.closestPt(sceneObjects);
+        if (t1.index>-1) {
+            Ray t2(t1.hit, ray.dir);
+            color += rho * trace(t2, step+1);
+        }
+    }
 
-	if (obj->isRefractive() && step < MAX_STEPS)
-	{
-		float kr      = obj->getRefractionCoeff();
-		float eta     = obj->getRefractiveIndex();
-		glm::vec3 normal   = obj->normal(ray.hit);
-
-		float n1 = 1.0f, n2 = eta;
-		float etaRatio = n1 / n2;
-
-		glm::vec3 refrDir = glm::refract(ray.dir, normal, etaRatio);
-		refrDir = glm::normalize(refrDir);
-
-		Ray throughRay(ray.hit, refrDir);
-		throughRay.closestPt(sceneObjects);
-
-		glm::vec3 exitPt = throughRay.hit;
-		SceneObject* exitObj = sceneObjects[throughRay.index];
-		glm::vec3 Nexit = exitObj->normal(exitPt);
-		if (glm::dot(refrDir, Nexit) > 0.0f) {
-			Nexit = -Nexit;
-		}
-		
-		float etaRatioExit = n2 / n1;
-		glm::vec3 refrDirExit = glm::refract(refrDir, Nexit, etaRatioExit);
-		refrDirExit = glm::normalize(refrDirExit);
-
-		Ray exitRay(exitPt, refrDirExit);
-		exitRay.closestPt(sceneObjects);
-		glm::vec3 refrColor = trace(exitRay, step + 1);
-
-		color = color + kr * refrColor;
-	}
-
-
-	if (obj->isTransparent() && step < MAX_STEPS)
-	{
-		float rho = obj->getTransparencyCoeff();
-		Ray throughRay(ray.hit, ray.dir);
-		throughRay.closestPt(sceneObjects);
-		Ray exitRay(throughRay.hit, throughRay.dir);
-		glm::vec3 transparentColor = trace(exitRay, step + 1);
-		color = color + (rho * transparentColor);
-	}
-
-	Ray shadowRay(ray.hit, lightVec); 
-	shadowRay.closestPt(sceneObjects);
-	if (shadowRay.index > -1) {
-		shadowObj = sceneObjects[shadowRay.index];
-		if (shadowObj->isTransparent() || shadowObj->isRefractive()) {
-			glm::vec3 ambient = 0.2f * shadowObj->getColor();
-			glm::vec3 diffSpec = color - ambient;
-			color = ambient + 0.8f*diffSpec;
-		} else {
-			color = 0.2f * obj->getColor();
-		}
-	}
-
-	if (obj->isReflective() && step < MAX_STEPS)
-	{
-		float rho = obj->getReflectionCoeff();
-		glm::vec3 normalVec = obj->normal(ray.hit);
-		glm::vec3 reflectedDir = glm::reflect(ray.dir, normalVec);
-		Ray reflectedRay(ray.hit, reflectedDir);
-		glm::vec3 reflectedColor = trace(reflectedRay, step + 1);
-		color = color + (rho * reflectedColor);		
-	}
-
-	return color;
+    return glm::clamp(color, glm::vec3(0.0f), glm::vec3(1.0f));
 }
+
 
 //---The main display module -----------------------------------------------------------
 // In a ray tracing application, it just displays the ray traced image by drawing
@@ -235,6 +214,8 @@ void initialize() {
 
 	texture = TextureBMP("../Mars.bmp");
 
+	lightPositions.push_back(glm::vec3( 10.0f, 15.0f, -3.0f));
+    lightPositions.push_back(glm::vec3(-10.0f, 15.0f, -3.0f));
 
 	Sphere *sphere1 = new Sphere(glm::vec3(-7.0, -3.0, -70.0), 3.0);
 	sphere1->setColor(glm::vec3(0, 0, 1));
@@ -274,7 +255,7 @@ void initialize() {
 	lWall->setSpecularity(false);
 	sceneObjects.push_back(lWall);
 
-	Plane *rWall = new Plane (glm::vec3(20., -15, -40), glm::vec3(20., -15, -200), glm::vec3(20., 15, -200), glm::vec3(20., 15, -40)); 
+	Plane *rWall = new Plane (glm::vec3(20., 15, -40), glm::vec3(20., 15, -200), glm::vec3(20., -15, -200), glm::vec3(20., -15, -40)); 
 	rWall->setColor(glm::vec3(0, 1.0, 1.0));
 	rWall->setSpecularity(false);
 	sceneObjects.push_back(rWall);
@@ -284,7 +265,7 @@ void initialize() {
 	bWall->setColor(glm::vec3(0.173, 0.357, 0.369));
 	sceneObjects.push_back(bWall);
 
-	Plane *roof = new Plane (glm::vec3(-20., 15, -40), glm::vec3(20., 15, -40), glm::vec3(20., 15, -200), glm::vec3(-20., 15, -200));
+	Plane *roof = new Plane (glm::vec3(-20., 15, -200), glm::vec3(20., 15, -200), glm::vec3(20., 15, -40), glm::vec3(-20., 15, -40));
 	roof->setColor(glm::vec3(1.0, 0, 1.0));
 	roof->setSpecularity(false);
 	sceneObjects.push_back(roof);
