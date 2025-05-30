@@ -21,4 +21,4 @@ public:
     glm::vec3 normal(glm::vec3 p) override;
 };
 
-#endif // H_TRUNCATED_CONE
+#endif

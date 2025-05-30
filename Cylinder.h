@@ -1,4 +1,3 @@
-// Cylinder.h
 #ifndef H_CYLINDER
 #define H_CYLINDER
 

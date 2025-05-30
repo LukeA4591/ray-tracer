@@ -1,4 +1,3 @@
-// Torus.h
 #ifndef H_TORUS
 #define H_TORUS
 

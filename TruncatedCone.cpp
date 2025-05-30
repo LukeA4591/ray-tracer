@@ -1,4 +1,3 @@
-// TruncatedCone.cpp
 #include "TruncatedCone.h"
 #include <initializer_list>
 #include <cmath>
@@ -26,7 +25,7 @@ float TruncatedCone::intersect(glm::vec3 p0, glm::vec3 dir) {
         float sq = std::sqrt(disc);
         float t0 = (-B - sq) / (2*A);
         float t1 = (-B + sq) / (2*A);
-        // pick nearest positive
+
         for (float t : {t0, t1}) {
             if (t > EPS) {
                 float yHit = ro.y + dy*t;
@@ -51,23 +50,19 @@ float TruncatedCone::intersect(glm::vec3 p0, glm::vec3 dir) {
             tCap = (tCap<0 || tt < tCap) ? tt : tCap;
     }
 
-    // return closest positive
     if (tSide>0 && tCap>0) return std::min(tSide,tCap);
     else if (tSide>0)     return tSide;
     else                   return tCap;
 }
 
 glm::vec3 TruncatedCone::normal(glm::vec3 p) {
-    // local coords
     glm::vec3 lp = p - center;
     float halfH = height * 0.5f;
     const float tol = 1e-3f;
 
-    // cap normals
     if (std::fabs(lp.y - halfH) < tol)   return glm::vec3(0, +1, 0);
     if (std::fabs(lp.y + halfH) < tol)   return glm::vec3(0, -1, 0);
 
-    // side normal = ∇F = (2x, -2(r1+dr*(y+halfH))*dr, 2z)
     float dr  = (r2 - r1) / height;
     float R0  = r1 + dr*(lp.y + halfH);
     glm::vec3 n(lp.x,
