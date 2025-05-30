@@ -31,7 +31,7 @@ const float YMIN = -10.0;
 const float YMAX = 10.0;
 static std::vector<glm::vec3> lightPositions;
 const float ambientTerm = 0.2f;
-bool enableAA = true;
+bool enableAA = false;
 
 vector<SceneObject*> sceneObjects;
 TextureBMP texture;
@@ -71,26 +71,35 @@ glm::vec3 trace(Ray ray, int step) {
 
     float lightScale = 1.0f / float(lightPositions.size());
     for (auto& Lpos : lightPositions) {
-        glm::vec3 L = glm::normalize(Lpos - hit);
+        glm::vec3 L     = glm::normalize(Lpos - hit);
         Ray shadow(hit, L);
         shadow.closestPt(sceneObjects);
-        bool inShadow = false;
-        if (shadow.index > -1) {
-            float dL = glm::length(Lpos - hit);
-            float dO = glm::length(shadow.hit - hit);
-            inShadow = (dO < dL);
+
+        float NdotL     = glm::max(glm::dot(N, L), 0.0f);
+        glm::vec3 diff  = NdotL * baseCol;
+        glm::vec3 spec(0.0f);
+        if (obj->isSpecular()) {
+            glm::vec3 R    = glm::reflect(-L, N);
+            float     RV   = glm::max(glm::dot(R, V), 0.0f);
+            spec           = glm::vec3(powf(RV, obj->getShininess()));
         }
-        if (!inShadow) {
-            float NdotL = glm::max(glm::dot(N,L), 0.0f);
-            glm::vec3 diff = NdotL * baseCol;
-            glm::vec3 spec(0.0f);
-            if (obj->isSpecular()) {
-                glm::vec3 R = glm::reflect(-L, N);
-                float RV = glm::max(glm::dot(R, V), 0.0f);
-                spec = glm::vec3(powf(RV, obj->getShininess()));
+
+        glm::vec3 contrib(0.0f);
+        if (shadow.index < 0) {
+            contrib = diff + spec;
+        }
+        else {
+            SceneObject* blocker = sceneObjects[shadow.index];
+            float factor = 0.0f;
+            if (blocker->isTransparent()) {
+                factor = blocker->getTransparencyCoeff() / 1.5;
             }
-            color += lightScale * (diff + spec);
+            else if (blocker->isRefractive()) {
+                factor = blocker->getRefractionCoeff() / 1.5;
+            }
+            contrib = factor * (diff + spec);
         }
+        color += lightScale * contrib;
     }
 
     if (obj->isReflective() && step < MAX_STEPS) {
@@ -270,11 +279,11 @@ void initialize() {
 	roof->setSpecularity(false);
 	sceneObjects.push_back(roof);
 
-	Plane *mirror = new Plane (glm::vec3(-10., 1, -84), glm::vec3(10., 1, -84), glm::vec3(10., 10, -80), glm::vec3(-10., 10, -80)); 
-	mirror->setSpecularity(false);
-	mirror->setReflectivity(true, 0.8);
-	mirror->setColor(glm::vec3(0.1, 0.1, 0.1));
-	sceneObjects.push_back(mirror);
+	// Plane *mirror = new Plane (glm::vec3(-10., 1, -84), glm::vec3(10., 1, -84), glm::vec3(10., 10, -80), glm::vec3(-10., 10, -80)); 
+	// mirror->setSpecularity(false);
+	// mirror->setReflectivity(true, 0.8);
+	// mirror->setColor(glm::vec3(0.1, 0.1, 0.1));
+	// sceneObjects.push_back(mirror);
 }
 
 int main(int argc, char *argv[]) {
